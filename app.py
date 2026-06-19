@@ -70,5 +70,5 @@ with tab2:
                     st.write(response.text)
                 except Exception as e:
                     st.error(f"An error occurred: {e}")
-```eof
+
             
