@@ -42,7 +42,9 @@ DAILY_GOALS = {
 st.title("🥗 AI Macro Tracker")
 
 # Two main tabs to act as pages
-main_tab, history_tab = st.tabs(["📊 Dashboard & Logging", "🗓️ Meal Diary"])
+main_tab, recommendations_tab, history_tab = st.tabs(
+    ["📊 Dashboard & Logging", "🎯 Recommendations", "🗓️ Meal Diary"]
+)
 
 def calc_progress(current, goal):
     """Prevents the progress bar from crashing if you go over 100%"""
@@ -50,11 +52,36 @@ def calc_progress(current, goal):
 
 # --- 4. The AI Processing Logic ---
 system_prompt = """
-You are an expert nutritionist. Analyze the provided food images or text description.
-Estimate the nutritional value for the ENTIRE meal represented. Give the meal a short, descriptive name.
-You MUST respond ONLY with a valid JSON object. Do not include markdown formatting like ```json.
-Format the JSON exactly like this:
-{"name": "Short meal name", "calories": 0, "protein": 0, "carbs": 0, "fat": 0, "fiber": 0, "sugar": 0, "sodium": 0, "cholesterol": 0}
+You are an expert nutritionist.
+
+Analyze the entire meal shown in the image or described by the user.
+
+Estimate:
+
+- calories
+- protein
+- carbs
+- fat
+- fiber
+- sugar
+- sodium
+- cholesterol
+
+Give the meal a short descriptive name.
+
+Return ONLY valid JSON.
+
+{
+    "name": "",
+    "calories": 0,
+    "protein": 0,
+    "carbs": 0,
+    "fat": 0,
+    "fiber": 0,
+    "sugar": 0,
+    "sodium": 0,
+    "cholesterol": 0
+}
 """
 
 def process_meal(contents_to_analyze, source_type):
@@ -82,6 +109,72 @@ def process_meal(contents_to_analyze, source_type):
             st.success(f"Added {nutrition_data.get('name', 'Meal')}! (+{nutrition_data.get('calories', 0)} kcal)")
         except Exception as e:
             st.error(f"Could not calculate nutrients. Make sure the image is clear. Error: {e}")
+
+def generate_recommendations():
+    remaining = {}
+
+    for nutrient, goal in DAILY_GOALS.items():
+        remaining[nutrient] = max(
+            0,
+            goal - st.session_state.daily_totals.get(nutrient, 0)
+        )
+
+    recommendation_prompt = f"""
+    You are a nutrition coach.
+
+    The user is:
+    - Pescetarian
+    - Dislikes spinach
+    - Dislikes chickpeas
+
+    Daily goals:
+    {DAILY_GOALS}
+
+    Current totals:
+    {st.session_state.daily_totals}
+
+    Remaining targets:
+    {remaining}
+
+    Suggest 3 meal recipes for the rest of the day.
+
+    Requirements:
+    - Use fish, seafood, eggs, dairy, tofu, vegetables, grains, fruits.
+    - Do not use spinach or chickpeas.
+    - Help the user move closer to their remaining goals.
+    - Include estimated calories, protein, carbs and fat.
+
+    Return ONLY valid JSON:
+
+    {{
+      "recipes": [
+        {{
+          "name": "",
+          "description": "",
+          "calories": 0,
+          "protein": 0,
+          "carbs": 0,
+          "fat": 0
+        }}
+      ]
+    }}
+    """
+
+    try:
+        response = model.generate_content(recommendation_prompt)
+
+        raw_text = (
+            response.text
+            .replace("```json", "")
+            .replace("```", "")
+            .strip()
+        )
+
+        return json.loads(raw_text)
+
+    except Exception as e:
+        st.error(f"Could not generate recommendations: {e}")
+        return None
 
 # --- 5. Dashboard & Logging UI ---
 with main_tab:
@@ -143,6 +236,57 @@ with main_tab:
                 process_meal([food_description], "Text Description")
             else:
                 st.warning("Please type a description first.")
+
+
+with recommendations_tab:
+
+    st.header("🎯 Meal Recommendations")
+
+    if st.session_state.daily_totals["calories"] == 0:
+        st.info(
+            "Log at least one meal before generating recommendations."
+        )
+
+    else:
+
+        if st.button(
+            "Generate Personalized Recipes",
+            use_container_width=True
+        ):
+
+            recommendations = generate_recommendations()
+
+            if recommendations:
+
+                for recipe in recommendations["recipes"]:
+
+                    with st.container(border=True):
+
+                        st.subheader(recipe["name"])
+
+                        st.write(recipe["description"])
+
+                        c1, c2, c3, c4 = st.columns(4)
+
+                        c1.metric(
+                            "Calories",
+                            f"{recipe['calories']} kcal"
+                        )
+
+                        c2.metric(
+                            "Protein",
+                            f"{recipe['protein']} g"
+                        )
+
+                        c3.metric(
+                            "Carbs",
+                            f"{recipe['carbs']} g"
+                        )
+
+                        c4.metric(
+                            "Fat",
+                            f"{recipe['fat']} g"
+                        )
 
 # --- 6. Meal Diary / History UI ---
 with history_tab:
